@@ -1,0 +1,10 @@
+.venv/
+.git/
+.env
+**/__pycache__/
+*.pyc
+k8s/
+iam/
+scripts/
+*.md
+.DS_Store

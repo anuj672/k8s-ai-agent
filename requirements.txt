@@ -1,0 +1,7 @@
+fastapi>=0.115,<1
+uvicorn[standard]>=0.32,<1
+# Pinned: newer kubernetes clients need python-dateutil>=3, which conflicts with botocore (<3)
+kubernetes==31.*
+boto3>=1.35,<2
+pydantic>=2.7,<3
+python-dotenv>=1.0,<2

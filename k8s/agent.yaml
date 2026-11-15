@@ -1,0 +1,85 @@
+# The agent itself, running in the ai-agent namespace under the read-only
+# ServiceAccount from rbac.yaml. Apply rbac.yaml first.
+#
+# Prerequisite (not in git): the Bedrock credentials Secret
+#   kubectl create secret generic aws-bedrock-creds -n ai-agent \
+#     --from-literal=AWS_ACCESS_KEY_ID=... --from-literal=AWS_SECRET_ACCESS_KEY=...
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: k8s-ai-agent-config
+  namespace: ai-agent
+data:
+  AWS_REGION: us-east-1
+  BEDROCK_MODEL_ID: global.anthropic.claude-haiku-4-5-20251001-v1:0
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: k8s-ai-agent
+  namespace: ai-agent
+  labels:
+    app: k8s-ai-agent
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: k8s-ai-agent
+  template:
+    metadata:
+      labels:
+        app: k8s-ai-agent
+    spec:
+      serviceAccountName: k8s-investigator   # read-only identity from rbac.yaml
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: agent
+          image: k8s-ai-agent:v1
+          imagePullPolicy: Never              # image is loaded into minikube, not pulled
+          ports:
+            - containerPort: 8000
+          envFrom:
+            - configMapRef:
+                name: k8s-ai-agent-config
+            - secretRef:
+                name: aws-bedrock-creds
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8000
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: k8s-ai-agent
+  namespace: ai-agent
+spec:
+  selector:
+    app: k8s-ai-agent
+  ports:
+    - port: 80
+      targetPort: 8000

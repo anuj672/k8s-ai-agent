@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>k8s-ai-agent</title>
+<style>
+  :root {
+    --bg: #0f1216; --panel: #171b21; --panel-2: #1e232b; --line: #2a313b;
+    --text: #e6e9ee; --muted: #8b95a3; --accent: #5aa9ff;
+    --ok: #3fb97f; --warn: #e5a83b; --bad: #ef5d5d;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, sans-serif;
+  }
+  main { max-width: 980px; margin: 0 auto; padding: 32px 20px 64px; }
+  header { display: flex; align-items: baseline; gap: 12px; margin-bottom: 4px; }
+  h1 { font-size: 22px; margin: 0; letter-spacing: -0.01em; }
+  .tag {
+    font: 12px var(--mono); color: var(--ok); border: 1px solid var(--ok);
+    border-radius: 999px; padding: 1px 8px;
+  }
+  .sub { color: var(--muted); margin: 0 0 24px; }
+
+  .controls {
+    display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px;
+  }
+  label { color: var(--muted); font-size: 13px; }
+  select, button {
+    font: inherit; color: var(--text); background: var(--panel-2);
+    border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px;
+  }
+  select { min-width: 220px; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #06121f; font-weight: 600; cursor: pointer; }
+  button.primary:disabled { opacity: 0.55; cursor: progress; }
+  .status { color: var(--muted); font-size: 13px; margin-left: auto; }
+
+  .error {
+    margin-top: 16px; padding: 12px 14px; border-radius: 8px;
+    background: rgba(239, 93, 93, 0.1); border: 1px solid var(--bad); color: #ffb4b4;
+  }
+  .summary {
+    margin: 24px 0 16px; padding: 14px 16px; border-left: 3px solid var(--accent);
+    background: var(--panel); border-radius: 0 8px 8px 0;
+  }
+  .meta { color: var(--muted); font-size: 12px; margin-top: 6px; font-family: var(--mono); }
+
+  .issue {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    padding: 16px 18px; margin-bottom: 14px;
+  }
+  .issue-head { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
+  .resource { font: 600 15px var(--mono); }
+  .symptom { color: var(--warn); margin-top: 2px; }
+  .conf { text-align: right; min-width: 110px; font-size: 12px; color: var(--muted); }
+  .conf-bar { height: 6px; background: var(--panel-2); border-radius: 999px; margin-top: 4px; overflow: hidden; }
+  .conf-bar > span { display: block; height: 100%; background: var(--ok); }
+  h3 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 14px 0 6px; }
+  ul { margin: 0; padding-left: 18px; }
+  li { margin: 2px 0; }
+  .cmd {
+    display: flex; gap: 8px; align-items: flex-start; margin: 6px 0;
+    background: #0b0e12; border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px;
+  }
+  .cmd code { flex: 1; font: 13px var(--mono); white-space: pre-wrap; word-break: break-all; }
+  .cmd button { padding: 2px 8px; font-size: 12px; cursor: pointer; }
+  .healthy {
+    margin-top: 24px; padding: 16px; border: 1px solid var(--ok); border-radius: 10px;
+    color: var(--ok); background: rgba(63, 185, 127, 0.08);
+  }
+  details { margin-top: 18px; }
+  summary { cursor: pointer; color: var(--muted); }
+  pre.evidence {
+    font: 12px var(--mono); background: #0b0e12; border: 1px solid var(--line);
+    border-radius: 8px; padding: 12px; overflow: auto; max-height: 420px;
+  }
+  .spinner {
+    display: inline-block; width: 14px; height: 14px; border: 2px solid var(--muted);
+    border-top-color: transparent; border-radius: 50%; animation: spin 0.8s linear infinite;
+    vertical-align: -2px; margin-right: 6px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>k8s-ai-agent</h1>
+    <span class="tag">read-only</span>
+  </header>
+  <p class="sub">AI root-cause analysis for a Kubernetes namespace. Suggestions only: nothing is applied to the cluster.</p>
+
+  <div class="controls">
+    <label for="ns">Namespace</label>
+    <select id="ns"><option>loading…</option></select>
+    <button id="go" class="primary">Investigate</button>
+    <span id="status" class="status"></span>
+  </div>
+
+  <div id="out"></div>
+</main>
+
+<script>
+// Everything rendered from the API uses textContent, never innerHTML:
+// model output and log content are untrusted.
+const $ = (id) => document.getElementById(id);
+
+function el(tag, attrs = {}, children = []) {
+  const node = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (k === "text") node.textContent = v;
+    else if (k === "class") node.className = v;
+    else node.setAttribute(k, v);
+  }
+  for (const child of children) node.append(child);
+  return node;
+}
+
+async function loadNamespaces() {
+  const select = $("ns");
+  try {
+    const res = await fetch("/namespaces");
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const names = await res.json();
+    select.replaceChildren(...names.map((n) => el("option", { value: n, text: n })));
+    if (names.includes("demo")) select.value = "demo";
+  } catch (e) {
+    select.replaceChildren(el("option", { text: "failed to load" }));
+    showError(`Could not list namespaces: ${e.message}`);
+  }
+}
+
+function showError(message) {
+  $("out").replaceChildren(el("div", { class: "error", text: message }));
+}
+
+function commandBlock(cmd) {
+  const btn = el("button", { text: "copy", type: "button" });
+  btn.addEventListener("click", async () => {
+    await navigator.clipboard.writeText(cmd);
+    btn.textContent = "copied";
+    setTimeout(() => (btn.textContent = "copy"), 1200);
+  });
+  return el("div", { class: "cmd" }, [el("code", { text: cmd }), btn]);
+}
+
+function issueCard(issue) {
+  const pct = Math.round((issue.confidence ?? 0) * 100);
+  const bar = el("div", { class: "conf-bar" }, [el("span", { style: `width:${pct}%` })]);
+
+  return el("div", { class: "issue" }, [
+    el("div", { class: "issue-head" }, [
+      el("div", {}, [
+        el("div", { class: "resource", text: issue.resource }),
+        el("div", { class: "symptom", text: issue.symptom }),
+      ]),
+      el("div", { class: "conf" }, [el("div", { text: `confidence ${pct}%` }), bar]),
+    ]),
+    el("h3", { text: "Root cause" }),
+    el("div", { text: issue.root_cause }),
+    el("h3", { text: "Evidence" }),
+    el("ul", {}, issue.evidence.map((e) => el("li", { text: e }))),
+    el("h3", { text: "Suggested fix" }),
+    el("div", { text: issue.fix.explanation }),
+    ...(issue.fix.commands || []).map(commandBlock),
+  ]);
+}
+
+function render(data, seconds) {
+  const { diagnosis, usage, evidence } = data;
+  const nodes = [
+    el("div", { class: "summary" }, [
+      el("div", { text: diagnosis.summary }),
+      el("div", {
+        class: "meta",
+        text: `${diagnosis.issues.length} issue(s) · ${usage.inputTokens} in / ${usage.outputTokens} out tokens · ${seconds}s`,
+      }),
+    ]),
+  ];
+
+  if (diagnosis.issues.length === 0) {
+    nodes.push(el("div", { class: "healthy", text: "No problems found in this namespace." }));
+  } else {
+    nodes.push(...diagnosis.issues.map(issueCard));
+  }
+
+  nodes.push(
+    el("details", {}, [
+      el("summary", { text: "Raw evidence sent to the model" }),
+      el("pre", { class: "evidence", text: JSON.stringify(evidence, null, 2) }),
+    ])
+  );
+  $("out").replaceChildren(...nodes);
+}
+
+async function investigate() {
+  const ns = $("ns").value;
+  const btn = $("go");
+  btn.disabled = true;
+  $("status").replaceChildren(el("span", { class: "spinner" }), `Investigating ${ns}…`);
+  $("out").replaceChildren();
+  const started = performance.now();
+
+  try {
+    const res = await fetch("/investigate", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ namespace: ns }),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.detail ? JSON.stringify(body.detail) : `HTTP ${res.status}`);
+    render(body, ((performance.now() - started) / 1000).toFixed(1));
+    $("status").textContent = "";
+  } catch (e) {
+    $("status").textContent = "";
+    showError(`Investigation failed: ${e.message}`);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+$("go").addEventListener("click", investigate);
+loadNamespaces();
+</script>
+</body>
+</html>
