@@ -144,6 +144,8 @@ uvicorn app.main:app --reload --env-file .env
 
 ### 4. Run in-cluster (under the read-only ServiceAccount)
 
+> **TODO — not yet verified.** The Dockerfile, `k8s/agent.yaml` and IAM policy are included, but the in-cluster run hasn't been tested end to end yet. v1 is currently verified **locally** (step 3). The steps below are the intended procedure.
+
 **a. A dedicated, least-privilege IAM identity for the app.** It can only invoke Claude Haiku 4.5 and nothing else.
 ```bash
 ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
@@ -188,11 +190,11 @@ kubectl port-forward -n ai-agent svc/k8s-ai-agent 8000:80
   ```
 - **Why a ClusterRole, and why not the built-in `view`?** The agent reads across namespaces and lists `namespaces`, which are cluster-scoped, so a namespaced Role can't do the job. The built-in `view` role is broader than needed and doesn't include `pods/log`. In production, scope access with per-namespace RoleBindings against the same ClusterRole.
 - **No write paths.** The agent has no code that mutates cluster state.
-- **Hardened pod.** Non-root UID 10001, read-only root filesystem, no privilege escalation, all Linux capabilities dropped, seccomp `RuntimeDefault`, CPU/memory limits.
+- **Hardened pod (manifest provided, in-cluster run TODO).** Non-root UID 10001, read-only root filesystem, no privilege escalation, all Linux capabilities dropped, seccomp `RuntimeDefault`, CPU/memory limits.
 - **Validated model output.** Responses must match a Pydantic schema (every issue needs at least one evidence item, confidence between 0 and 1), or the API returns 502. The prompt *asks* for the format; the code *enforces* it.
 - **Untrusted log content.** Logs are capped at 30 lines, and the system prompt tells the model to treat log text as data, never as instructions (prompt-injection defense).
 - **Input validation.** Namespace names are checked against the DNS-1123 pattern before any API call.
-- **Separate identities.** The developer uses a personal IAM admin profile (never root keys). The deployed app uses its own IAM user that can only call `bedrock:InvokeModel` on Claude Haiku 4.5.
+- **Separate identities.** The developer uses a personal IAM admin profile (never root keys). For the in-cluster deployment (TODO), the app gets its own IAM user that can only call `bedrock:InvokeModel` on Claude Haiku 4.5 (`iam/bedrock-invoke-policy.json`), never the developer's credentials.
 
 ## Lessons learned
 
@@ -210,9 +212,10 @@ kubectl port-forward -n ai-agent svc/k8s-ai-agent 8000:80
 - [x] Phase 1: least-privilege RBAC, verified with `kubectl auth can-i`
 - [x] Phase 2: investigation layer (five collectors, structured evidence)
 - [x] Phase 3: AI layer (Bedrock + system prompt + Pydantic validation), 3/3 scenarios diagnosed
-- [ ] Phase 4: run in-cluster (Dockerfile, hardened Deployment using the ServiceAccount)
-- [ ] Phase 5: web UI
-- [ ] Phase 6: screenshots and publishing
+- [x] Phase 5: web UI (verified locally: 3 issue cards for the `demo` namespace)
+- [x] Published to GitHub
+- [ ] **TODO Phase 4: run in-cluster.** Manifests are written (Dockerfile, hardened `k8s/agent.yaml`, Haiku-only IAM policy) but not yet verified. Remaining: create the app's IAM user, the `aws-bedrock-creds` Secret, `docker build` → `minikube image load` → `kubectl apply`, and confirm the UI works through `port-forward` while running as `k8s-investigator`.
+- [ ] TODO: UI screenshot in this README
 
 ## Roadmap (v2 — production on AWS)
 
