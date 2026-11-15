@@ -16,7 +16,7 @@ from app.collectors.logs import collect_logs
 from app.collectors.network import inspect_services
 from app.collectors.pods import inspect_pods
 from app.k8s_client import core
-from app.llm import diagnose
+from app.llm import GuardrailBlocked, diagnose
 
 UI_FILE = Path(__file__).resolve().parent.parent / "ui" / "index.html"
 
@@ -70,6 +70,8 @@ def investigate(req: InvestigateRequest):
     # 2. Reasoning (Bedrock), validated against the schema
     try:
         diagnosis, usage = diagnose(evidence)
+    except GuardrailBlocked as e:
+        raise HTTPException(status_code=422, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=502, detail=str(e))
 
