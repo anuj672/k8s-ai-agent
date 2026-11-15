@@ -5,7 +5,7 @@ An AI-powered Kubernetes troubleshooting agent for internal DevOps and dev teams
 > **Read-only by design.** The agent never changes the cluster. It runs under a least-privilege ServiceAccount and only *suggests* `kubectl` commands or YAML changes for a human to review.
 
 ### ▶️ Demo
-
+https://github.com/user-attachments/assets/79865e09-c13d-40f5-ad6c-265890570d65
 
 ![k8s-ai-agent diagnosing broken workloads in the demo namespace](docs/sample_investigation.png)
 
